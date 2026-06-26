@@ -1404,11 +1404,10 @@
    CONFIG — change API key and model here
    ================================================================ */
 const CONFIG = {
-  API_KEY:   'AQ.Ab8RN6I0JgHvGWKwwidisAPxuUAama3rgqsNwNzJ2-SlZg4ikw',
-  API_URL:   'https://api.jdoodle.com/ai/v1/chat',
-  MODEL:     'jdoodle-ai',         // JDoodle AI model
+  API_KEY:    'AQ.Ab8RN6LPDTfJGgnE6t1GwiKUJJ43sJ_J5tVZMxvRMgvxJN20oQ', // Get free key at: https://aistudio.google.com/app/apikey
+  API_URL:    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
   MAX_TOKENS: 2048,
-  APP_NAME:  'MasterJi',
+  APP_NAME:   'MasterJi',
 };
 
 /* ================================================================
@@ -2010,22 +2009,23 @@ async function fetchAIResponse() {
   state.isLoading = true;
   document.getElementById('send-btn').disabled = true;
 
-  const typingRow = addTypingIndicator();
+  addTypingIndicator();
 
   try {
-    // Build messages for API
     const systemPrompt = buildSystemPrompt();
     const apiMessages  = buildApiMessages(chat.messages);
 
-    const response = await fetch(CONFIG.API_URL, {
+    // Gemini API request format
+    const response = await fetch(`${CONFIG.API_URL}?key=${CONFIG.API_KEY}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CONFIG.API_KEY}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: apiMessages,
-        system: systemPrompt,
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: apiMessages,
+        generationConfig: {
+          maxOutputTokens: CONFIG.MAX_TOKENS,
+          temperature: 0.7,
+        },
       }),
     });
 
@@ -2033,41 +2033,31 @@ async function fetchAIResponse() {
 
     if (!response.ok) {
       let errText = `Error ${response.status}`;
-      try { const d = await response.json(); errText = d.message || d.error || errText; } catch {}
+      try {
+        const d = await response.json();
+        errText = d.error?.message || errText;
+      } catch {}
       throw new Error(errText);
     }
 
     const data = await response.json();
 
-    // Extract reply — handle various API response shapes
-    let reply = '';
-    if (data.reply)                      reply = data.reply;
-    else if (data.message)               reply = data.message;
-    else if (data.content)               reply = data.content;
-    else if (data.choices?.[0]?.message?.content) reply = data.choices[0].message.content;
-    else if (data.text)                  reply = data.text;
-    else reply = JSON.stringify(data);
-
-    // Clean up the response for student-friendly output
-    reply = cleanResponse(reply);
+    // Extract reply from Gemini response structure
+    const reply = cleanResponse(
+      data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.'
+    );
 
     // Save to chat
-    const aiMsg = { role: 'ai', content: reply, timestamp: Date.now() };
-    chat.messages.push(aiMsg);
+    chat.messages.push({ role: 'ai', content: reply, timestamp: Date.now() });
     saveToStorage();
 
-    // Render
     appendMessageToUI('ai', reply);
     scrollBottom();
 
   } catch (err) {
     removeTypingIndicator();
     console.error('API Error:', err);
-
-    // Mark as error for retry
-    const errMsg = { role: 'ai', content: '', timestamp: Date.now(), isError: true };
-    chat.messages.push(errMsg);
-
+    chat.messages.push({ role: 'ai', content: '', timestamp: Date.now(), isError: true });
     showError(err.message || 'Something went wrong. Please check your connection and try again.');
   } finally {
     state.isLoading = false;
@@ -2103,13 +2093,13 @@ function buildSystemPrompt() {
 }
 
 function buildApiMessages(messages) {
-  // Send last N messages to stay within context
+  // Gemini uses "model" for assistant, and wraps content in parts[]
   const MAX_HISTORY = 20;
-  const recent = messages.filter(m => !m.isError).slice(-MAX_HISTORY);
+  const recent = messages.filter(m => !m.isError && m.content).slice(-MAX_HISTORY);
 
   return recent.map(msg => ({
-    role: msg.role === 'ai' ? 'assistant' : 'user',
-    content: msg.content || '',
+    role: msg.role === 'ai' ? 'model' : 'user',
+    parts: [{ text: msg.content || '' }],
   }));
 }
 
