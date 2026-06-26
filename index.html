@@ -1404,8 +1404,9 @@
    CONFIG — change API key and model here
    ================================================================ */
 const CONFIG = {
-  API_KEY:    'AQ.Ab8RN6JHel2O62uXwyOJ4YMue6axjP7SzC5yBYCKQp9lo9csTg', // Get free key at: https://aistudio.google.com/app/apikey
-  API_URL:    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+  API_KEY:    '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', // Free key at: https://openrouter.ai → Keys → Create Key
+  API_URL:    'https://openrouter.ai/api/v1/chat/completions',
+  MODEL:      'meta-llama/llama-4-maverick:free', // Free model, no credit card needed
   MAX_TOKENS: 2048,
   APP_NAME:   'MasterJi',
 };
@@ -2015,17 +2016,19 @@ async function fetchAIResponse() {
     const systemPrompt = buildSystemPrompt();
     const apiMessages  = buildApiMessages(chat.messages);
 
-    // Gemini API request format
-    const response = await fetch(`${CONFIG.API_URL}?key=${CONFIG.API_KEY}`, {
+const response = await fetch(CONFIG.API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.API_KEY}`,
+        'HTTP-Referer': window.location.href,
+        'X-Title': CONFIG.APP_NAME,
+      },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: apiMessages,
-        generationConfig: {
-          maxOutputTokens: CONFIG.MAX_TOKENS,
-          temperature: 0.7,
-        },
+        model: CONFIG.MODEL,
+        messages: [{ role: 'system', content: systemPrompt }, ...apiMessages],
+        max_tokens: CONFIG.MAX_TOKENS,
+        temperature: 0.7,
       }),
     });
 
@@ -2042,9 +2045,9 @@ async function fetchAIResponse() {
 
     const data = await response.json();
 
-    // Extract reply from Gemini response structure
+    // Extract reply — OpenRouter uses OpenAI-compatible response shape
     const reply = cleanResponse(
-      data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.'
+      data.choices?.[0]?.message?.content || 'Sorry, I could not generate a response.'
     );
 
     // Save to chat
@@ -2093,13 +2096,13 @@ function buildSystemPrompt() {
 }
 
 function buildApiMessages(messages) {
-  // Gemini uses "model" for assistant, and wraps content in parts[]
+  // OpenRouter uses standard OpenAI message format
   const MAX_HISTORY = 20;
   const recent = messages.filter(m => !m.isError && m.content).slice(-MAX_HISTORY);
 
   return recent.map(msg => ({
-    role: msg.role === 'ai' ? 'model' : 'user',
-    parts: [{ text: msg.content || '' }],
+    role: msg.role === 'ai' ? 'assistant' : 'user',
+    content: msg.content || '',
   }));
 }
 
